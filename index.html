@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#fbf7ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="줄자">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>줄자</title>
+<style>
+  :root { --bg:#fbf7ec; --ink:#1d1d1b; --accent:#e4572e; --blue:#2a6fdb; --muted:#7a7468; }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; overflow:hidden; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    touch-action:none; user-select:none; -webkit-user-select:none; overscroll-behavior:none; }
+  canvas { display:block; }
+  #ruler { position:fixed; inset:0; }
+  button { font:inherit; font-size:14px; border:1.5px solid var(--ink); background:#fff; color:var(--ink);
+    border-radius:999px; padding:8px 14px; cursor:pointer; white-space:nowrap; }
+  button.primary { background:var(--ink); color:#fff; }
+  button.accent { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  #tabs { position:fixed; top:10px; right:10px; z-index:20; display:flex; background:#fff;
+    border:1.5px solid var(--ink); border-radius:999px; padding:3px; gap:2px; }
+  #tabs button { border:none; padding:7px 12px; font-size:13px; background:transparent; }
+  #tabs button.on { background:var(--ink); color:#fff; }
+
+  #panel { position:fixed; right:12px; top:50%; transform:translateY(-50%); z-index:10;
+    display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  #readout { font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; line-height:1.1; }
+  #readout small { display:block; font-size:12.5px; font-weight:500; color:var(--muted); margin-top:2px; }
+  .grp { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+  .sep { height:6px; }
+
+  #hint { position:fixed; left:70px; right:12px; bottom:14px; font-size:12px; color:var(--muted);
+    text-align:right; line-height:1.4; z-index:5; pointer-events:none; }
+
+  #calib { position:fixed; inset:0; z-index:30; background:var(--bg); display:none; flex-direction:column;
+    align-items:center; padding:16px; gap:12px; }
+  #calib.on { display:flex; }
+  #calib p { font-size:14px; color:var(--muted); text-align:center; max-width:320px; line-height:1.45; }
+  #card { border:2px dashed var(--accent); border-radius:3mm; background:rgba(228,87,46,.07); position:relative; flex:none; }
+  #card span { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--accent); font-size:13px; text-align:center; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; }
+  input[type=range] { width:240px; }
+
+  #photo { position:fixed; inset:0; z-index:8; background:#22211f; display:none; flex-direction:column; }
+  #photo.on { display:flex; }
+  #pwrap { flex:1; position:relative; min-height:0; }
+  #pcv { position:absolute; inset:0; }
+  #pempty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; color:#d9d3c5; text-align:center; padding:24px; font-size:14px; line-height:1.55; pointer-events:none; }
+  #pempty b { color:#fff; }
+  #pbar { background:var(--bg); padding:10px 12px calc(10px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:8px; }
+  #pstatus { font-size:13.5px; color:var(--ink); min-height:19px; }
+  #presult { font-size:28px; font-weight:700; font-variant-numeric:tabular-nums; }
+  #pbar .row { justify-content:flex-start; }
+  #fileIn { display:none; }
+</style>
+</head>
+<body>
+<canvas id="ruler"></canvas>
+
+<div id="tabs">
+  <button data-mode="ruler">자</button>
+  <button data-mode="slide">밀기</button>
+  <button data-mode="photo">사진</button>
+</div>
+
+<div id="panel">
+  <div id="readout"></div>
+  <div class="grp" id="rulerBtns">
+    <button id="chainBtn" class="accent">+ 이어 재기</button>
+    <button id="resetRuler">초기화</button>
+  </div>
+  <div class="grp" id="slideBtns">
+    <button id="resetSlide" class="accent">초기화</button>
+  </div>
+  <div class="sep"></div>
+  <button id="unitBtn">cm ↔ inch</button>
+  <button id="flipBtn">0점 위/아래</button>
+  <button id="calBtn" class="primary">보정하기</button>
+</div>
+<div id="hint"></div>
+
+<div id="photo">
+  <div id="pwrap">
+    <canvas id="pcv"></canvas>
+    <div id="pempty">
+      <div style="font-size:40px">📷</div>
+      <div><b>카드(신용·체크·교통카드)를 잴 물건 옆 같은 평면에</b> 두고<br>최대한 정면에서 사진을 찍어 주세요.</div>
+      <div>그다음 카드 꼭짓점 4개 → 물건 양 끝 2개를 탭하면<br>원근까지 보정해서 길이를 계산해요.</div>
+    </div>
+  </div>
+  <div id="pbar">
+    <div id="pstatus">사진을 선택하세요</div>
+    <div id="presult"></div>
+    <div class="row">
+      <button id="pickBtn" class="primary">사진 선택 / 촬영</button>
+      <button id="undoBtn">점 하나 취소</button>
+      <button id="pResetBtn">점 모두 지우기</button>
+    </div>
+  </div>
+  <input id="fileIn" type="file" accept="image/*">
+</div>
+
+<div id="calib">
+  <p><b>신용카드·체크카드·교통카드</b>(표준 85.60 × 53.98 mm)를 화면에 대고, 점선 상자가 카드와 <b>딱 맞을 때까지</b> 조절하세요.</p>
+  <div id="card"><span>카드를 여기에<br>올려놓으세요</span></div>
+  <input id="slider" type="range" min="3" max="12" step="0.005">
+  <div class="row">
+    <button id="minus">− 미세</button>
+    <button id="plus">+ 미세</button>
+  </div>
+  <div class="row">
+    <button id="resetBtn">기본값</button>
+    <button id="doneBtn" class="primary">완료</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const CARD_L = 85.60, CARD_S = 53.98;
+  const DEFAULT_PXMM = 160 / 25.4; // 보정 전 추정치
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+  let pxPerMm = store.get('pxPerMm', DEFAULT_PXMM);
+  let calibrated = store.get('calibrated', false);
+  let inch = store.get('inch', false);
+  let flip = store.get('flip', false);
+  let mode = store.get('mode', 'ruler');
+
+  const $ = id => document.getElementById(id);
+  const fmt = (mm, withUnit = true) => inch
+    ? (mm / 25.4).toFixed(2) + (withUnit ? ' in' : '')
+    : (mm >= 100 ? (mm / 10).toFixed(1) + (withUnit ? ' cm' : '') : mm.toFixed(1) + (withUnit ? ' mm' : ''));
+  const bigFmt = mm => {
+    if (inch) return `${(mm / 25.4).toFixed(2)}<small>inch</small>`;
+    return mm >= 100 ? `${(mm / 10).toFixed(1)}<small>cm</small>` : `${mm.toFixed(1)}<small>mm</small>`;
+  };
+
+  /* ---------------- 공통: 자 캔버스 ---------------- */
+  const cv = $('ruler'), ctx = cv.getContext('2d');
+  const distPx = y => flip ? innerHeight - y : y;
+  const yOf = d => flip ? innerHeight - d : d;
+
+  // 자 모드 상태
+  let markerPx = null, chainMm = 0, segments = 0;
+  // 밀기 모드 상태
+  let slideAccPx = 0, slideStart = null, slideCur = null, strokes = 0;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+    cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (mode === 'photo') resizePhoto(); else draw();
+  }
+
+  function drawTicks(alpha) {
+    const H = innerHeight;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#1d1d1b'; ctx.strokeStyle = '#1d1d1b'; ctx.lineWidth = 1;
+    ctx.font = '600 13px -apple-system, sans-serif'; ctx.textBaseline = 'middle';
+    if (!inch) {
+      const maxMm = H / pxPerMm;
+      for (let mm = 0; mm <= maxMm; mm++) {
+        const y = Math.round(yOf(mm * pxPerMm)) + 0.5;
+        const len = mm % 10 === 0 ? 34 : mm % 5 === 0 ? 22 : 12;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(len, y); ctx.stroke();
+        if (mm % 10 === 0 && mm > 0) ctx.fillText(mm / 10, 40, y);
+      }
+    } else {
+      const pxIn = pxPerMm * 25.4, maxQ = H / pxIn * 16;
+      for (let q = 0; q <= maxQ; q++) {
+        const y = Math.round(yOf(q / 16 * pxIn)) + 0.5;
+        const len = q % 16 === 0 ? 34 : q % 8 === 0 ? 26 : q % 4 === 0 ? 19 : q % 2 === 0 ? 13 : 8;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(len, y); ctx.stroke();
+        if (q % 16 === 0 && q > 0) ctx.fillText(q / 16, 40, y);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function draw() {
+    const W = innerWidth, H = innerHeight;
+    ctx.clearRect(0, 0, W, H);
+    if (mode === 'ruler') {
+      drawTicks(1);
+      if (markerPx !== null) {
+        const y = yOf(markerPx);
+        ctx.fillStyle = 'rgba(228,87,46,.08)';
+        ctx.fillRect(0, Math.min(y, yOf(0)), W, Math.abs(y - yOf(0)));
+        ctx.strokeStyle = '#e4572e'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      }
+    } else if (mode === 'slide') {
+      drawTicks(0.35);
+      if (slideStart && slideCur) {
+        ctx.strokeStyle = '#2a6fdb'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(slideStart.x, slideStart.y); ctx.lineTo(slideStart.x, slideCur.y); ctx.stroke();
+        ctx.fillStyle = 'rgba(42,111,219,.25)';
+        ctx.beginPath(); ctx.arc(slideStart.x, slideStart.y, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#2a6fdb';
+        ctx.beginPath(); ctx.arc(slideCur.x, slideCur.y, 22, 0, Math.PI * 2); ctx.globalAlpha = .18; ctx.fill(); ctx.globalAlpha = 1;
+      }
+    }
+    updateReadout();
+  }
+
+  function updateReadout() {
+    const ro = $('readout'), hint = $('hint');
+    const calNote = calibrated ? '' : '⚠ 보정 전 추정값입니다. "보정하기"를 먼저 눌러주세요.\n';
+    if (mode === 'ruler') {
+      const cur = markerPx === null ? 0 : markerPx / pxPerMm;
+      const total = chainMm + cur;
+      ro.innerHTML = segments
+        ? `${bigFmt(total)}<small>이어 잰 ${segments}구간 ${fmt(chainMm)} + 지금 ${fmt(cur)}</small>`
+        : `${bigFmt(total)}<small>화면 전체 ${fmt(innerHeight / pxPerMm)}</small>`;
+      hint.innerText = calNote + (segments || markerPx !== null
+        ? '화면보다 길면: 끝낼 지점을 탭 → 그 위치를 물건에 표시 → "+ 이어 재기" → 폰을 밀어 0점을 표시에 맞추고 계속'
+        : '0 눈금에 물건 끝을 맞추고, 반대쪽 끝을 탭하세요');
+    } else if (mode === 'slide') {
+      const cur = slideStart && slideCur ? slideCur.y - slideStart.y : 0;
+      const mm = Math.abs(slideAccPx + cur) / pxPerMm;
+      ro.innerHTML = `${bigFmt(mm)}<small>${strokes ? `${strokes}번 밀었음` : '아직 측정 전'}</small>`;
+      hint.innerText = calNote + '손을 바닥에 받치고 손가락 하나를 화면에 대고 고정 → 폰만 위아래 방향으로 밀기. 화면 끝에 닿으면 폰은 그대로 두고 손가락만 떼서 반대편에 다시 대고 계속 미세요.';
+    }
+  }
+
+  /* 입력 */
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    if (mode === 'ruler') { markerPx = Math.max(0, distPx(e.clientY)); draw(); }
+    else if (mode === 'slide') { slideStart = { x: e.clientX, y: e.clientY }; slideCur = { ...slideStart }; draw(); }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (mode === 'ruler' && e.buttons) { markerPx = Math.max(0, distPx(e.clientY)); draw(); }
+    else if (mode === 'slide' && slideStart) { slideCur = { x: e.clientX, y: e.clientY }; draw(); }
+  });
+  const endSlide = () => {
+    if (mode !== 'slide' || !slideStart) return;
+    const d = slideCur.y - slideStart.y;
+    if (Math.abs(d) > 2) { slideAccPx += d; strokes++; }
+    slideStart = slideCur = null; draw();
+  };
+  cv.addEventListener('pointerup', endSlide);
+  cv.addEventListener('pointercancel', endSlide);
+
+  $('chainBtn').onclick = () => {
+    if (markerPx === null || markerPx < 1) return;
+    chainMm += markerPx / pxPerMm; segments++; markerPx = null; draw();
+  };
+  $('resetRuler').onclick = () => { chainMm = 0; segments = 0; markerPx = null; draw(); };
+  $('resetSlide').onclick = () => { slideAccPx = 0; strokes = 0; slideStart = slideCur = null; draw(); };
+  $('unitBtn').onclick = () => { inch = !inch; store.set('inch', inch); draw(); };
+  $('flipBtn').onclick = () => { flip = !flip; store.set('flip', flip); markerPx = null; draw(); };
+
+  /* ---------------- 보정 ---------------- */
+  const calib = $('calib'), card = $('card'), slider = $('slider');
+  function sizeCard() {
+    card.style.width = CARD_S * pxPerMm + 'px';
+    card.style.height = CARD_L * pxPerMm + 'px';
+    slider.value = pxPerMm;
+  }
+  $('calBtn').onclick = () => { sizeCard(); calib.classList.add('on'); };
+  slider.oninput = () => { pxPerMm = +slider.value; sizeCard(); };
+  $('minus').onclick = () => { pxPerMm -= 0.01; sizeCard(); };
+  $('plus').onclick = () => { pxPerMm += 0.01; sizeCard(); };
+  $('resetBtn').onclick = () => { pxPerMm = DEFAULT_PXMM; sizeCard(); };
+  $('doneBtn').onclick = () => {
+    calibrated = true; store.set('pxPerMm', pxPerMm); store.set('calibrated', true);
+    calib.classList.remove('on'); draw();
+  };
+
+  /* ---------------- 사진 측정 ---------------- */
+  const pcv = $('pcv'), pctx = pcv.getContext('2d'), pwrap = $('pwrap');
+  let img = null, pts = [], view = { s: 1, ox: 0, oy: 0, w: 0, h: 0 }, drag = null;
+  const LABELS = ['카드1', '카드2', '카드3', '카드4', 'A', 'B'];
+
+  function resizePhoto() {
+    const dpr = window.devicePixelRatio || 1, r = pwrap.getBoundingClientRect();
+    pcv.width = r.width * dpr; pcv.height = r.height * dpr;
+    pcv.style.width = r.width + 'px'; pcv.style.height = r.height + 'px';
+    pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    view.w = r.width; view.h = r.height;
+    if (img) {
+      const pad = 8;
+      view.s = Math.min((r.width - pad * 2) / img.width, (r.height - pad * 2) / img.height);
+      view.ox = (r.width - img.width * view.s) / 2; view.oy = (r.height - img.height * view.s) / 2;
+    }
+    drawPhoto();
+  }
+  const toScr = p => ({ x: view.ox + p.x * view.s, y: view.oy + p.y * view.s });
+  const toImg = (x, y) => ({ x: (x - view.ox) / view.s, y: (y - view.oy) / view.s });
+
+  function orderCard(c) {
+    const cx = c.reduce((a, p) => a + p.x, 0) / 4, cy = c.reduce((a, p) => a + p.y, 0) / 4;
+    return [...c].sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
+  }
+  function homography(src, dst) {
+    const A = [], b = [];
+    for (let i = 0; i < 4; i++) {
+      const { x, y } = src[i], { x: u, y: v } = dst[i];
+      A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+      A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+    }
+    const n = 8;
+    for (let c = 0; c < n; c++) {
+      let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+      [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+      if (Math.abs(A[c][c]) < 1e-12) return null;
+      for (let r = 0; r < n; r++) if (r !== c) {
+        const f = A[r][c] / A[c][c];
+        for (let k = c; k < n; k++) A[r][k] -= f * A[c][k];
+        b[r] -= f * b[c];
+      }
+    }
+    return b.map((v, i) => v / A[i][i]);
+  }
+  const applyH = (h, p) => {
+    const w = h[6] * p.x + h[7] * p.y + 1;
+    return { x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w };
+  };
+  function measure() {
+    if (pts.length < 6) return null;
+    const c = orderCard(pts.slice(0, 4));
+    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const longFirst = d(c[0], c[1]) + d(c[2], c[3]) >= d(c[1], c[2]) + d(c[3], c[0]);
+    const [w, h] = longFirst ? [CARD_L, CARD_S] : [CARD_S, CARD_L];
+    const H = homography(c, [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]);
+    if (!H) return null;
+    const a = applyH(H, pts[4]), b = applyH(H, pts[5]);
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  function drawPhoto() {
+    pctx.clearRect(0, 0, view.w, view.h);
+    $('pempty').style.display = img ? 'none' : 'flex';
+    if (!img) { photoStatus(); return; }
+    pctx.drawImage(img, view.ox, view.oy, img.width * view.s, img.height * view.s);
+    const S = pts.map(toScr);
+    // 카드 윤곽
+    if (pts.length >= 2) {
+      const cardPts = pts.length >= 4 ? orderCard(pts.slice(0, 4)).map(toScr) : S.slice(0, Math.min(4, S.length));
+      pctx.strokeStyle = '#e4572e'; pctx.lineWidth = 2; pctx.fillStyle = 'rgba(228,87,46,.15)';
+      pctx.beginPath(); cardPts.forEach((p, i) => i ? pctx.lineTo(p.x, p.y) : pctx.moveTo(p.x, p.y));
+      if (pts.length >= 4) { pctx.closePath(); pctx.fill(); }
+      pctx.stroke();
+    }
+    if (pts.length === 6) {
+      pctx.strokeStyle = '#4fa3ff'; pctx.lineWidth = 3;
+      pctx.beginPath(); pctx.moveTo(S[4].x, S[4].y); pctx.lineTo(S[5].x, S[5].y); pctx.stroke();
+    }
+    S.forEach((p, i) => {
+      const col = i < 4 ? '#e4572e' : '#4fa3ff';
+      pctx.fillStyle = '#fff'; pctx.beginPath(); pctx.arc(p.x, p.y, 7, 0, Math.PI * 2); pctx.fill();
+      pctx.fillStyle = col; pctx.beginPath(); pctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2); pctx.fill();
+      pctx.font = '700 12px -apple-system, sans-serif'; pctx.textBaseline = 'bottom';
+      const t = LABELS[i], tw = pctx.measureText(t).width;
+      pctx.fillStyle = 'rgba(0,0,0,.6)'; pctx.fillRect(p.x + 8, p.y - 24, tw + 8, 17);
+      pctx.fillStyle = '#fff'; pctx.fillText(t, p.x + 12, p.y - 9);
+    });
+    if (drag !== null) drawLoupe(S[drag]);
+    photoStatus();
+  }
+
+  function drawLoupe(p) {
+    const R = 62, Z = 3.5;
+    let lx = p.x, ly = p.y - 120;
+    if (ly < R + 4) ly = p.y + 120;
+    lx = Math.min(Math.max(lx, R + 4), view.w - R - 4);
+    pctx.save();
+    pctx.beginPath(); pctx.arc(lx, ly, R, 0, Math.PI * 2); pctx.clip();
+    pctx.fillStyle = '#000'; pctx.fillRect(lx - R, ly - R, R * 2, R * 2);
+    const ip = toImg(p.x, p.y), k = view.s * Z;
+    pctx.drawImage(img, lx - ip.x * k, ly - ip.y * k, img.width * k, img.height * k);
+    pctx.strokeStyle = drag < 4 ? '#e4572e' : '#4fa3ff'; pctx.lineWidth = 1.5;
+    pctx.beginPath(); pctx.moveTo(lx - 14, ly); pctx.lineTo(lx + 14, ly); pctx.moveTo(lx, ly - 14); pctx.lineTo(lx, ly + 14); pctx.stroke();
+    pctx.restore();
+    pctx.strokeStyle = '#fff'; pctx.lineWidth = 3;
+    pctx.beginPath(); pctx.arc(lx, ly, R, 0, Math.PI * 2); pctx.stroke();
+  }
+
+  function photoStatus() {
+    const st = $('pstatus'), res = $('presult');
+    if (!img) { st.textContent = '사진을 선택하세요'; res.textContent = ''; return; }
+    const n = pts.length;
+    if (n < 4) st.textContent = `카드 꼭짓점을 탭하세요 (${n}/4) · 누른 채 끌면 돋보기로 정밀 조정`;
+    else if (n < 6) st.textContent = `물건의 ${n === 4 ? '한쪽 끝(A)' : '다른 쪽 끝(B)'}을 탭하세요`;
+    else st.textContent = '점을 끌어서 미세 조정할 수 있어요 · 물건과 카드가 같은 평면일 때 정확합니다';
+    const mm = measure();
+    res.textContent = mm == null ? '' : fmt(mm);
+  }
+
+  pcv.addEventListener('pointerdown', e => {
+    if (!img) return;
+    pcv.setPointerCapture(e.pointerId);
+    const r = pcv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    let best = -1, bd = 32;
+    pts.forEach((p, i) => { const s = toScr(p), d = Math.hypot(s.x - x, s.y - y); if (d < bd) { bd = d; best = i; } });
+    if (best >= 0) drag = best;
+    else if (pts.length < 6) { pts.push(toImg(x, y)); drag = pts.length - 1; }
+    drawPhoto();
+  });
+  pcv.addEventListener('pointermove', e => {
+    if (drag === null) return;
+    const r = pcv.getBoundingClientRect();
+    const p = toImg(e.clientX - r.left, e.clientY - r.top);
+    p.x = Math.min(Math.max(p.x, 0), img.width); p.y = Math.min(Math.max(p.y, 0), img.height);
+    pts[drag] = p; drawPhoto();
+  });
+  const endDrag = () => { drag = null; drawPhoto(); };
+  pcv.addEventListener('pointerup', endDrag);
+  pcv.addEventListener('pointercancel', endDrag);
+
+  $('pickBtn').onclick = () => $('fileIn').click();
+  $('fileIn').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const im = new Image();
+    im.onload = () => { img = im; pts = []; resizePhoto(); };
+    im.src = URL.createObjectURL(f);
+    e.target.value = '';
+  };
+  $('undoBtn').onclick = () => { pts.pop(); drawPhoto(); };
+  $('pResetBtn').onclick = () => { pts = []; drawPhoto(); };
+
+  /* ---------------- 모드 전환 ---------------- */
+  function setMode(m) {
+    mode = m; store.set('mode', m);
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+    $('photo').classList.toggle('on', m === 'photo');
+    $('panel').style.display = m === 'photo' ? 'none' : 'flex';
+    $('hint').style.display = m === 'photo' ? 'none' : 'block';
+    $('rulerBtns').style.display = m === 'ruler' ? 'flex' : 'none';
+    $('slideBtns').style.display = m === 'slide' ? 'flex' : 'none';
+    $('flipBtn').style.display = m === 'ruler' ? 'block' : 'none';
+    if (m === 'photo') resizePhoto(); else draw();
+  }
+  document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+
+  addEventListener('resize', resize);
+  resize();
+  setMode(mode);
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
